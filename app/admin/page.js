@@ -3,29 +3,37 @@ import { useState, useEffect } from "react";
 import { createClient } from "../lib/supabase";
 
 export default function AdminPage() {
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [adminPassword, setAdminPassword] = useState("");
   const [users, setUsers] = useState([]);
   const [scores, setScores] = useState([]);
+  const [charities, setCharities] = useState([]);
+  const [winners, setWinners] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("users");
   const [drawResult, setDrawResult] = useState(null);
+  const [newCharity, setNewCharity] = useState({ name: "", description: "" });
+  const [message, setMessage] = useState("");
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  const ADMIN_PASSWORD = "admin123";
+
+  function handleAdminLogin() {
+    if (adminPassword === ADMIN_PASSWORD) {
+      setIsAdmin(true);
+      fetchData();
+    } else {
+      alert("Wrong password!");
+    }
+  }
 
   async function fetchData() {
     const supabase = createClient();
-
-    const { data: profilesData } = await supabase
-      .from("profiles")
-      .select("*");
-
-    const { data: scoresData } = await supabase
-      .from("scores")
-      .select("*");
-
+    const { data: profilesData } = await supabase.from("profiles").select("*");
+    const { data: scoresData } = await supabase.from("scores").select("*");
+    const { data: charitiesData } = await supabase.from("charities").select("*");
     setUsers(profilesData || []);
     setScores(scoresData || []);
+    setCharities(charitiesData || []);
     setLoading(false);
   }
 
@@ -36,19 +44,97 @@ export default function AdminPage() {
       if (!numbers.includes(num)) numbers.push(num);
     }
     setDrawResult(numbers);
+
+    // Check winners
+    const winnersFound = [];
+    users.forEach(user => {
+      const userScores = scores
+        .filter(s => s.user_id === user.id)
+        .map(s => s.score);
+      const matches = userScores.filter(s => numbers.includes(s)).length;
+      if (matches >= 3) {
+        winnersFound.push({
+          name: user.full_name,
+          email: user.email,
+          matches,
+          prize: matches === 5 ? "Jackpot 🏆" : matches === 4 ? "2nd Prize 🥈" : "3rd Prize 🥉"
+        });
+      }
+    });
+    setWinners(winnersFound);
+  }
+
+  async function addCharity() {
+    if (!newCharity.name) return;
+    const supabase = createClient();
+    const { error } = await supabase.from("charities").insert({
+      name: newCharity.name,
+      description: newCharity.description,
+    });
+    if (!error) {
+      setMessage("Charity added! ✅");
+      setNewCharity({ name: "", description: "" });
+      fetchData();
+    }
+  }
+
+  async function deleteCharity(id) {
+    const supabase = createClient();
+    await supabase.from("charities").delete().eq("id", id);
+    setMessage("Charity deleted!");
+    fetchData();
+  }
+
+  async function deleteUser(id) {
+    const supabase = createClient();
+    await supabase.from("profiles").delete().eq("id", id);
+    setMessage("User deleted!");
+    fetchData();
+  }
+
+  if (!isAdmin) {
+    return (
+      <main className="min-h-screen bg-black text-white flex items-center justify-center px-4">
+        <div className="w-full max-w-md">
+          <h1 className="text-4xl font-black text-center mb-2">Admin <span className="text-red-400">Access</span></h1>
+          <p className="text-gray-400 text-center mb-8">Enter admin password to continue</p>
+          <div className="bg-zinc-900 p-8 rounded-2xl border border-zinc-800">
+            <input
+              type="password"
+              value={adminPassword}
+              onChange={(e) => setAdminPassword(e.target.value)}
+              placeholder="Admin password"
+              className="w-full bg-zinc-800 text-white px-4 py-3 rounded-xl border border-zinc-700 focus:outline-none focus:border-red-400 mb-4"
+            />
+            <button
+              onClick={handleAdminLogin}
+              className="w-full bg-red-500 text-white font-black py-3 rounded-xl hover:bg-red-400 transition text-lg"
+            >
+              Login as Admin →
+            </button>
+          </div>
+        </div>
+      </main>
+    );
   }
 
   return (
     <main className="min-h-screen bg-black text-white">
       <nav className="flex justify-between items-center px-8 py-6 border-b border-zinc-800">
-        <h1 className="text-2xl font-bold text-green-400">⛳ GolfGives Admin</h1>
+        <h1 className="text-2xl font-bold text-red-400">⛳ GolfGives Admin</h1>
         <span className="bg-red-500 text-white text-sm px-3 py-1 rounded-full font-bold">Admin Panel</span>
       </nav>
 
       <div className="max-w-6xl mx-auto px-8 py-12">
 
+        {message && (
+          <div className="bg-green-400/20 border border-green-400 text-green-400 px-4 py-3 rounded-xl mb-6">
+            {message}
+          </div>
+        )}
+
         {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-10">
           <div className="bg-zinc-900 p-6 rounded-2xl border border-zinc-800">
             <p className="text-gray-400 text-sm mb-1">Total Users</p>
             <p className="text-4xl font-black text-green-400">{users.length}</p>
@@ -59,19 +145,23 @@ export default function AdminPage() {
           </div>
           <div className="bg-zinc-900 p-6 rounded-2xl border border-zinc-800">
             <p className="text-gray-400 text-sm mb-1">Prize Pool</p>
-            <p className="text-4xl font-black text-blue-400">£{users.length * 10}.00</p>
+            <p className="text-4xl font-black text-blue-400">£{users.length * 10}</p>
+          </div>
+          <div className="bg-zinc-900 p-6 rounded-2xl border border-zinc-800">
+            <p className="text-gray-400 text-sm mb-1">Charities</p>
+            <p className="text-4xl font-black text-purple-400">{charities.length}</p>
           </div>
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-4 mb-8">
-          {["users", "scores", "draw"].map((tab) => (
+        <div className="flex gap-4 mb-8 flex-wrap">
+          {["users", "scores", "charities", "draw"].map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
               className={`px-6 py-2 rounded-full font-bold capitalize transition ${
                 activeTab === tab
-                  ? "bg-green-400 text-black"
+                  ? "bg-red-500 text-white"
                   : "bg-zinc-800 text-white hover:bg-zinc-700"
               }`}
             >
@@ -88,15 +178,14 @@ export default function AdminPage() {
                 <tr className="border-b border-zinc-800">
                   <th className="text-left px-6 py-4 text-gray-400 font-bold">Name</th>
                   <th className="text-left px-6 py-4 text-gray-400 font-bold">Email</th>
-                  <th className="text-left px-6 py-4 text-gray-400 font-bold">Subscription</th>
+                  <th className="text-left px-6 py-4 text-gray-400 font-bold">Status</th>
                   <th className="text-left px-6 py-4 text-gray-400 font-bold">Charity %</th>
+                  <th className="text-left px-6 py-4 text-gray-400 font-bold">Action</th>
                 </tr>
               </thead>
               <tbody>
-                {loading ? (
-                  <tr><td colSpan="4" className="px-6 py-8 text-center text-gray-400">Loading...</td></tr>
-                ) : users.length === 0 ? (
-                  <tr><td colSpan="4" className="px-6 py-8 text-center text-gray-400">No users yet</td></tr>
+                {users.length === 0 ? (
+                  <tr><td colSpan="5" className="px-6 py-8 text-center text-gray-400">No users yet</td></tr>
                 ) : (
                   users.map((user) => (
                     <tr key={user.id} className="border-b border-zinc-800 hover:bg-zinc-800 transition">
@@ -108,6 +197,14 @@ export default function AdminPage() {
                         </span>
                       </td>
                       <td className="px-6 py-4">{user.charity_percentage || 10}%</td>
+                      <td className="px-6 py-4">
+                        <button
+                          onClick={() => deleteUser(user.id)}
+                          className="bg-red-500/20 text-red-400 px-3 py-1 rounded-full text-sm font-bold hover:bg-red-500/40 transition"
+                        >
+                          Delete
+                        </button>
+                      </td>
                     </tr>
                   ))
                 )}
@@ -128,9 +225,7 @@ export default function AdminPage() {
                 </tr>
               </thead>
               <tbody>
-                {loading ? (
-                  <tr><td colSpan="3" className="px-6 py-8 text-center text-gray-400">Loading...</td></tr>
-                ) : scores.length === 0 ? (
+                {scores.length === 0 ? (
                   <tr><td colSpan="3" className="px-6 py-8 text-center text-gray-400">No scores yet</td></tr>
                 ) : (
                   scores.map((score) => (
@@ -148,43 +243,123 @@ export default function AdminPage() {
           </div>
         )}
 
+        {/* Charities Tab */}
+        {activeTab === "charities" && (
+          <div>
+            <div className="bg-zinc-900 p-6 rounded-2xl border border-zinc-800 mb-6">
+              <h3 className="text-xl font-black mb-4">Add New Charity ❤️</h3>
+              <input
+                type="text"
+                value={newCharity.name}
+                onChange={(e) => setNewCharity({ ...newCharity, name: e.target.value })}
+                placeholder="Charity name"
+                className="w-full bg-zinc-800 text-white px-4 py-3 rounded-xl border border-zinc-700 focus:outline-none focus:border-green-400 mb-3"
+              />
+              <input
+                type="text"
+                value={newCharity.description}
+                onChange={(e) => setNewCharity({ ...newCharity, description: e.target.value })}
+                placeholder="Charity description"
+                className="w-full bg-zinc-800 text-white px-4 py-3 rounded-xl border border-zinc-700 focus:outline-none focus:border-green-400 mb-3"
+              />
+              <button
+                onClick={addCharity}
+                className="bg-green-400 text-black font-black px-6 py-3 rounded-xl hover:bg-green-300 transition"
+              >
+                Add Charity →
+              </button>
+            </div>
+            <div className="bg-zinc-900 rounded-2xl border border-zinc-800 overflow-hidden">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-zinc-800">
+                    <th className="text-left px-6 py-4 text-gray-400 font-bold">Name</th>
+                    <th className="text-left px-6 py-4 text-gray-400 font-bold">Description</th>
+                    <th className="text-left px-6 py-4 text-gray-400 font-bold">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {charities.length === 0 ? (
+                    <tr><td colSpan="3" className="px-6 py-8 text-center text-gray-400">No charities yet</td></tr>
+                  ) : (
+                    charities.map((charity) => (
+                      <tr key={charity.id} className="border-b border-zinc-800 hover:bg-zinc-800 transition">
+                        <td className="px-6 py-4 font-bold">{charity.name}</td>
+                        <td className="px-6 py-4 text-gray-400">{charity.description}</td>
+                        <td className="px-6 py-4">
+                          <button
+                            onClick={() => deleteCharity(charity.id)}
+                            className="bg-red-500/20 text-red-400 px-3 py-1 rounded-full text-sm font-bold hover:bg-red-500/40 transition"
+                          >
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
         {/* Draw Tab */}
         {activeTab === "draw" && (
           <div className="bg-zinc-900 p-8 rounded-2xl border border-zinc-800">
             <h3 className="text-xl font-black mb-6">Monthly Draw Engine 🎯</h3>
-            <p className="text-gray-400 mb-8">Run a simulation of the monthly draw. 5 random numbers between 1-45 will be generated.</p>
-
+            <p className="text-gray-400 mb-8">Run the monthly draw simulation.</p>
             <button
               onClick={runDraw}
               className="bg-green-400 text-black font-black px-8 py-4 rounded-xl hover:bg-green-300 transition text-lg mb-8"
             >
-              Run Draw Simulation 🎲
+              Run Draw 🎲
             </button>
 
             {drawResult && (
               <div>
-                <p className="text-gray-400 mb-4">Draw Result:</p>
-                <div className="flex gap-4 flex-wrap">
+                <p className="text-gray-400 mb-4">Draw Numbers:</p>
+                <div className="flex gap-4 flex-wrap mb-8">
                   {drawResult.map((num, i) => (
                     <div key={i} className="w-16 h-16 bg-green-400 text-black rounded-full flex items-center justify-center text-2xl font-black">
                       {num}
                     </div>
                   ))}
                 </div>
-                <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-4">
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
                   <div className="bg-zinc-800 p-4 rounded-xl">
-                    <p className="text-yellow-400 font-black">5 Match Jackpot</p>
+                    <p className="text-yellow-400 font-black">5 Match Jackpot 🏆</p>
                     <p className="text-2xl font-black">£{(users.length * 10 * 0.4).toFixed(2)}</p>
                   </div>
                   <div className="bg-zinc-800 p-4 rounded-xl">
-                    <p className="text-gray-300 font-black">4 Match Prize</p>
+                    <p className="text-gray-300 font-black">4 Match Prize 🥈</p>
                     <p className="text-2xl font-black">£{(users.length * 10 * 0.35).toFixed(2)}</p>
                   </div>
                   <div className="bg-zinc-800 p-4 rounded-xl">
-                    <p className="text-orange-400 font-black">3 Match Prize</p>
+                    <p className="text-orange-400 font-black">3 Match Prize 🥉</p>
                     <p className="text-2xl font-black">£{(users.length * 10 * 0.25).toFixed(2)}</p>
                   </div>
                 </div>
+
+                <h4 className="text-xl font-black mb-4">Winners 🏆</h4>
+                {winners.length === 0 ? (
+                  <p className="text-gray-400">No winners this draw — jackpot rolls over!</p>
+                ) : (
+                  <div className="space-y-3">
+                    {winners.map((winner, i) => (
+                      <div key={i} className="bg-zinc-800 p-4 rounded-xl flex justify-between items-center">
+                        <div>
+                          <p className="font-black">{winner.name}</p>
+                          <p className="text-gray-400 text-sm">{winner.email}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-green-400 font-black">{winner.prize}</p>
+                          <p className="text-gray-400 text-sm">{winner.matches} matches</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
